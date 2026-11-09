@@ -1,0 +1,197 @@
+
+name: Build FireTVRegulator APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Generate Android project
+        shell: bash
+        run: |
+          mkdir -p app/src/main/java/com/maskennetwork/firetvregulator
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = 'FireTVRegulator'
+          include ':app'
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.6.1' apply false
+          }
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.maskennetwork.firetvregulator'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.maskennetwork.firetvregulator'
+                  minSdk 22
+                  targetSdk 28
+                  versionCode 1
+                  versionName '0.1'
+              }
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-feature
+                  android:name="android.hardware.touchscreen"
+                  android:required="false" />
+
+              <application
+                  android:label="FireTVRegulator"
+                  android:theme="@android:style/Theme.Material.NoActionBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                          <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/java/com/maskennetwork/firetvregulator/MainActivity.java <<'EOF'
+          package com.maskennetwork.firetvregulator;
+
+          import android.app.Activity;
+          import android.media.AudioManager;
+          import android.os.Bundle;
+          import android.graphics.Color;
+          import android.view.Gravity;
+          import android.widget.Button;
+          import android.widget.LinearLayout;
+          import android.widget.TextView;
+
+          public class MainActivity extends Activity {
+              private AudioManager audio;
+              private TextView status;
+              private int originalVolume;
+
+              @Override
+              public void onCreate(Bundle state) {
+                  super.onCreate(state);
+
+                  audio = (AudioManager)
+                      getSystemService(AUDIO_SERVICE);
+
+                  originalVolume = audio.getStreamVolume(
+                      AudioManager.STREAM_MUSIC);
+
+                  LinearLayout layout = new LinearLayout(this);
+                  layout.setOrientation(LinearLayout.VERTICAL);
+                  layout.setGravity(Gravity.CENTER);
+                  layout.setPadding(40, 30, 40, 30);
+                  layout.setBackgroundColor(Color.rgb(20, 25, 38));
+
+                  TextView title = new TextView(this);
+                  title.setText("FireTVRegulator - Audio Test");
+                  title.setTextSize(25);
+                  title.setTextColor(Color.WHITE);
+                  title.setGravity(Gravity.CENTER);
+                  layout.addView(title);
+
+                  status = new TextView(this);
+                  status.setTextSize(19);
+                  status.setTextColor(Color.WHITE);
+                  status.setGravity(Gravity.CENTER);
+                  status.setPadding(0, 25, 0, 25);
+                  layout.addView(status);
+
+                  addButton(layout, "Volume 5", 5);
+                  addButton(layout, "Volume 10", 10);
+                  addButton(layout, "Volume 15", 15);
+                  addButton(layout, "Ripristina volume iniziale",
+                      originalVolume);
+
+                  Button read = new Button(this);
+                  read.setText("Leggi volume");
+                  read.setOnClickListener(v -> refresh("Lettura"));
+                  layout.addView(read);
+
+                  setContentView(layout);
+                  refresh("Volume iniziale");
+              }
+
+              private void addButton(
+                  LinearLayout layout, String label, int value) {
+                  Button button = new Button(this);
+                  button.setText(label);
+                  button.setOnClickListener(v -> {
+                      try {
+                          audio.setStreamVolume(
+                              AudioManager.STREAM_MUSIC, value, 0);
+                          refresh("Richiesto: " + value);
+                      } catch (Exception e) {
+                          status.setText("Errore: " + e.toString());
+                      }
+                  });
+                  layout.addView(button);
+              }
+
+              private void refresh(String message) {
+                  int current = audio.getStreamVolume(
+                      AudioManager.STREAM_MUSIC);
+                  int maximum = audio.getStreamMaxVolume(
+                      AudioManager.STREAM_MUSIC);
+
+                  status.setText(message +
+                      "\nVolume letto: " + current + "/" + maximum +
+                      "\nVolume iniziale: " + originalVolume);
+              }
+          }
+          EOF
+
+      - name: Compile APK
+        run: gradle assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: FireTVRegulator-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
